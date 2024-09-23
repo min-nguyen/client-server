@@ -1,10 +1,12 @@
 open Lwt
 open Lwt_io
 
-(* Forward function composition *)
-let (^>>>) f g x = g (f x)
-(* Forward monadic function composition *)
-let (^>=>) f g x = f x >>= fun y -> g y
+open Kleisli
+module LwtKleisli : Kleisli with type 'a m = 'a Lwt.t = struct
+  open Lwt
+  type 'a m = 'a Lwt.t
+  let (^>=>) f g x = f x >>= g
+end
 
 let _SOCKET_ADDR
   = Unix.ADDR_INET (Unix.inet_addr_of_string "127.0.0.1", 9000)
@@ -26,13 +28,17 @@ type msg_ty =
   | StdInMsg of string
   | IChanMsg of string
 
+(* Forward function composition *)
+let (^>>>) f g x = g (f x)
+
 (* Read from standard input, and read/write to remote connection *)
 let rec handle_connection ?(start_t = Unix.gettimeofday ()) (ichan, ochan) name  =
+  let open LwtKleisli in
   (* Wait for data from the stdin or ichan. Process into a message type. *)
-   pick [ stdin |> read_line_opt ^>=> Option.map (fun s -> StdInMsg s) ^>>> return ;
+  pick [ stdin  |> read_line_opt ^>=> Option.map (fun s -> StdInMsg s) ^>>> return ;
           ichan |> read_line_opt ^>=> Option.map (fun s -> IChanMsg s) ^>>> return ;
         ]
-   >>= function
+  >>= function
     (* Message from standard input. *)
     | Some (StdInMsg stdin_msg) ->
         let start_t' = Unix.gettimeofday () in
@@ -42,11 +48,11 @@ let rec handle_connection ?(start_t = Unix.gettimeofday ()) (ichan, ochan) name 
     | Some (IChanMsg ichan_msg) ->
         (match ichan_msg with
           (* Simply an acknowledgement that a previously sent message was successful *)
-         | "ACK"  ->
+        | "ACK"  ->
             let roundtrip_time = Unix.gettimeofday() -. start_t in
             printl ("<Received acknowledgement>. Roundtrip time: " ^ string_of_float roundtrip_time ^ "s")
           (* Arbitrary message *)
-         | _     ->
+        | _     ->
             printl ichan_msg >>= fun () ->
             write_line ochan "ACK") >>= fun () ->
         handle_connection (ichan, ochan) name ~start_t:start_t
