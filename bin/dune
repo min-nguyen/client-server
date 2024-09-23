@@ -1,0 +1,6 @@
+
+(executables
+ (public_names main alt_main)
+ (names main alt_main)
+ (flags (:standard -w -33))
+ (libraries ClientServer lwt lwt.unix ))
